@@ -1,9 +1,11 @@
+import math
 import numpy as np
 import argparse
+import random
 
 import torch as t
 import torch.nn as nn
-from torch.distributions import Normal
+from torch.distributions import Normal, Laplace
 
 import gym
 import bayesfunc as bf
@@ -24,24 +26,32 @@ parser.add_argument('--zero_final_q',               action='store_true')
 parser.add_argument('--sigma',                      type=float, nargs='?', default=0.1)
 parser.add_argument('--device',                     type=str,   nargs='?', default='cpu',        choices=['cpu', 'cuda'])
 parser.add_argument('--storage_device',             type=str,   nargs='?', default='cpu',        choices=['cpu', 'cuda'])
+parser.add_argument('--dtype',                      type=str,   nargs='?', default='float64',    choices=['float32', 'float64'])
 parser.add_argument('--opt',                        type=str,   nargs='?', default='Adam',)
 parser.add_argument('--lr',                         type=float, nargs='?', default=0.01)
 parser.add_argument('--hidden_units',               type=int,   nargs='?', default=50)
-parser.add_argument('--hidden_layers',              type=int,   nargs='?', default=1)
+parser.add_argument('--hidden_layers',              type=int,   nargs='?', default=0)
 parser.add_argument('--train_batch',                type=int,   nargs='?', default=1024)
 parser.add_argument('--gi_inducing_batch',          type=int,   nargs='?', default=200)
+parser.add_argument('--gi_prec',                    type=str,   nargs='?', default='full',       choices=['full', 'diag'])
+parser.add_argument('--gi_inducing_scale',          type=float, nargs='?', default=2.)
 parser.add_argument('--S_eval',                     type=int,   nargs='?', default=100)
-parser.add_argument('--S_train',                    type=int,   nargs='?', default=1)
+parser.add_argument('--S_train',                    type=int,   nargs='?', default=3)
 parser.add_argument('--S_explore',                  type=int,   nargs='?', default=1)
 parser.add_argument('--gamma',                      type=float, nargs='?', default=0.99)
 parser.add_argument('--seed',                       type=int,   nargs='?', default=0)
-parser.add_argument('--epsilon',                    type=float, nargs='?', default=0.1)
-parser.add_argument('--train_steps_per_transition', type=int,   nargs='?', default=20)
+parser.add_argument('--epsilon',                    type=float, nargs='?', default=1)
+parser.add_argument('--train_steps_per_transition', type=int,   nargs='?', default=100)
 parser.add_argument('--output_scale',               type=float, nargs='?', default=200.)
+parser.add_argument('--action_weight',              type=float, nargs='?', default=0.1)
+parser.add_argument('--state_weight',               type=float, nargs='?', default=1.)
 args = parser.parse_args()
+
 
 t.manual_seed(args.seed)
 np.random.seed(args.seed)
+random.seed(args.seed)
+
 
 
 def obs_shape(env):
@@ -54,8 +64,8 @@ def mo_linear(env, args):
     assert 1 == len(shape)
     in_features = shape[0]
     out_features = actions(env)
-    nn = net(in_features, out_features, args)
-    return MO(nn, actions(env), args.device)
+    nn = net(in_features, out_features+1, args)
+    return MO(nn, actions(env), args)
 
 def so_linear(env, args):
     shape = obs_shape(env)
@@ -63,12 +73,12 @@ def so_linear(env, args):
     in_features = shape[0] + actions(env)
     out_features = 1
     _net = net(in_features, out_features, args)
-    return SO(OneHotConcatSONet(_net, actions(env)), actions(env), device)
+    return SO(OneHotConcatSONet(_net, actions(env)), actions(env), args)
 
 class Scale(nn.Module):
     def __init__(self, scale):
         super().__init__()
-        self.scale = scale
+        self.scale = t.tensor(scale)
     def forward(self, x):
         return self.scale*x
 
@@ -82,7 +92,7 @@ def net(in_features, out_features, args):
     kwargs = {
         'det' : {},
         'fac' : {},
-        'gi' : {'inducing_batch' : args.gi_inducing_batch}
+        'gi' : {'inducing_batch' : args.gi_inducing_batch, 'full_prec': args.gi_prec=='full'}
     }[args.vi_family]
 
     _net = nn.Sequential(
@@ -95,7 +105,7 @@ def net(in_features, out_features, args):
 
     if args.vi_family == 'gi':
         ib = args.gi_inducing_batch
-        _net = bf.InducingWrapper(_net, inducing_batch=ib, inducing_data=t.randn(ib, in_features))
+        _net = bf.InducingWrapper(_net, inducing_batch=ib, inducing_data=args.gi_inducing_scale*t.randn(ib, in_features))
     return _net
 
 class AbstractPr(nn.Module):
@@ -118,6 +128,7 @@ class QLearning(nn.Module):
         super().__init__()
         self.args = args
         self.env = gym.make(args.env)
+        self.env.action_space.seed(args.seed)
         self.env.seed(args.seed)
 
         moso = {
@@ -133,8 +144,12 @@ class QLearning(nn.Module):
         self.Pr = Pr(args.sigma)
 
         self.moso = moso(self.env, args)
-        self.buff = BufferDiscrete(obs_shape(self.env), output_device=args.device, storage_device=args.storage_device)
+        dtype = getattr(t, args.dtype)
+        self.buff = BufferDiscrete(obs_shape(self.env), args.storage_device, args.device, dtype)
+
+        self.to(device=args.device, dtype=dtype)
         self.opt  = getattr(t.optim, args.opt)(self.parameters(), lr=args.lr)
+
 
     def eval_rollout(self, render=False):
         s = self.env.reset()
@@ -173,8 +188,6 @@ class QLearning(nn.Module):
         
         self.opt.zero_grad()
         (-obj.mean()).backward()
-        #for param in self.moso.parameters():
-        #    print(param.grad)
         self.opt.step()
         
 
@@ -190,6 +203,7 @@ class QLearning(nn.Module):
 
         d = False
         t = 0
+        total_reward = 0.
         while (not d) and (t < self.env._max_episode_steps):
             if np.random.rand() < epsilon:
                 a = self.env.action_space.sample()
@@ -202,6 +216,7 @@ class QLearning(nn.Module):
                 assert d
                 d = False
 
+            total_reward += r
             self.buff.add_state(s, a, sp, r, d)
 
             for _ in range(self.args.train_steps_per_transition):
@@ -209,11 +224,11 @@ class QLearning(nn.Module):
 
             t+=1
             s = sp
-        #print(t)
+        return total_reward
         
 
 if __name__ == "__main__":
     q = QLearning(args)
     for i in range(100):
         q.train_rollout()
-        print(q.eval_rollout())
+        print(f"episode: {i}; eval:  {q.eval_rollout()}; sigma: {q.Pr.sigma}; weight: {q.moso.action_weight}")

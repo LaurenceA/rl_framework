@@ -18,12 +18,14 @@ def expand_unsqueeze_0(tensor, S):
     return tensor.expand(S, *(len(tensor.shape)*[-1]))
 
 class MOSO(nn.Module):
-    def __init__(self, net, actions, device='cpu', dtype=t.float32):
+    def __init__(self, net, actions, args):#, actions, device='cpu', dtype=t.float32):
         super().__init__() 
-        self.net = net.to(device=device, dtype=dtype)
+        self.net = net
         self.actions = actions
-        self.device = device
-        self.dtype = dtype
+        self.device = args.device
+        self.dtype = getattr(t, args.dtype)
+        self.action_weight = args.action_weight
+        self.state_weight = args.state_weight
 
 class MO(MOSO):
     #Input states as [T, F]
@@ -47,7 +49,9 @@ class MO(MOSO):
         sample_dict (for fixing the weights).
         """
         s = expand_unsqueeze_0(s, S)
-        return bf.propagate(self.net, s, sample_dict=sample_dict)
+        output, logpq, sample_dict = bf.propagate(self.net, s, sample_dict=sample_dict)
+        output = self.state_weight * output[..., 0:1] + self.action_weight * output[..., 1:]
+        return output, logpq, sample_dict
 
     def Qsasp(self, s, a, sp, S=1):
         """

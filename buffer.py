@@ -13,16 +13,18 @@ class AbstractBuffer:
     contiguous_batch(T)
         (a contiguous random batch of size min(T, self.filled_buffer))
     """
-    def __init__(self, state_shape, init_buffer, storage_device, output_device, dtype=t.float32):
+    def __init__(self, state_shape, storage_device='cpu', output_device='cpu', output_dtype=t.float32, init_buffer=32):
         self.storage_device = storage_device
         self.output_device = output_device
+        self.output_dtype = output_dtype
+        self
         self.filled_buffer = 0
         self.ratio = 4
         self.buffer_size = init_buffer
-        self.r  = t.zeros((init_buffer, 1),            device=storage_device, dtype=t.float32)
-        self.s  = t.zeros((init_buffer, *state_shape), device=storage_device, dtype=t.float32)
-        self.sp = t.zeros((init_buffer, *state_shape), device=storage_device, dtype=t.float32)
-        self.d  = t.zeros((init_buffer, 1),            device=storage_device, dtype=t.float32)
+        self.r  = t.zeros((init_buffer, 1),            device=storage_device)
+        self.s  = t.zeros((init_buffer, *state_shape), device=storage_device)
+        self.sp = t.zeros((init_buffer, *state_shape), device=storage_device)
+        self.d  = t.zeros((init_buffer, 1),            device=storage_device)
 
     def expand_buffer(self, old_buf):
         assert old_buf.shape[0] == self.filled_buffer
@@ -67,11 +69,12 @@ class AbstractBuffer:
                 return list(range(start, self.filled_buffer)) + list(range(T-(self.filled_buffer-start)))
 
     def batch(self, idxs):
-        return (self.s[idxs].to(device=self.output_device), 
-                self.a[idxs].to(device=self.output_device), 
-                self.sp[idxs].to(device=self.output_device), 
-                self.r[idxs].to(device=self.output_device), 
-                self.d[idxs].to(device=self.output_device))
+        kwargs = {'device': self.output_device, 'dtype': self.output_dtype}
+        return (self.s[idxs].to(**kwargs),
+                self.a[idxs].to(**kwargs),
+                self.sp[idxs].to(**kwargs),
+                self.r[idxs].to(**kwargs),
+                self.d[idxs].to(**kwargs))
 
     def random_batch(self, T):
         return self.batch(self.random_idxs(T))
@@ -83,13 +86,13 @@ class AbstractBuffer:
         
 
 class BufferContinuous(AbstractBuffer):
-    def __init__(self, state_shape, action_features, init_buffer=32, storage_device='cpu', output_device='cpu'):
-        super().__init__(state_shape, init_buffer, storage_device, output_device)
+    def __init__(self, state_shape, action_features, storage_device='cpu', output_device='cpu', output_dtype=t.float32, init_buffer=32):
+        super().__init__(state_shape, storage_device, output_device, output_dtype, init_buffer)
         self.a = t.zeros(init_buffer, action_features, device=storage_device)
 
 class BufferDiscrete(AbstractBuffer):
-    def __init__(self, state_shape, init_buffer=32, storage_device='cpu', output_device='cpu'):
-        super().__init__(state_shape, init_buffer, storage_device, output_device)
+    def __init__(self, state_shape, storage_device='cpu', output_device='cpu', output_dtype=t.float32,  init_buffer=32):
+        super().__init__(state_shape, storage_device, output_device, output_dtype, init_buffer)
         self.a = t.zeros(init_buffer, 1, dtype=t.int, device=storage_device)
 
 if __name__ == "__main__":
