@@ -21,11 +21,10 @@ class MOSO(nn.Module):
     def __init__(self, net, actions, args):#, actions, device='cpu', dtype=t.float32):
         super().__init__() 
         self.net = net
+        self.args = args
         self.actions = actions
         self.device = args.device
         self.dtype = getattr(t, args.dtype)
-        self.action_weight = args.action_weight
-        self.state_weight = args.state_weight
 
 class MO(MOSO):
     #Input states as [T, F]
@@ -50,7 +49,10 @@ class MO(MOSO):
         """
         s = expand_unsqueeze_0(s, S)
         output, logpq, sample_dict = bf.propagate(self.net, s, sample_dict=sample_dict)
-        output = self.state_weight * output[..., 0:1] + self.action_weight * output[..., 1:]
+        state_val = output[..., 0:1]
+        advantage = output[..., 1:]
+        advantage = advantage - advantage.max(-1, keepdim=True)[0]
+        output = self.args.state_weight*state_val + self.args.action_weight*advantage
         return output, logpq, sample_dict
 
     def Qsasp(self, s, a, sp, S=1):
@@ -67,7 +69,9 @@ class MO(MOSO):
         if a.device == t.device('cpu'):
             # gather on cpu wants 64 bit integers
             a = a.to(dtype=t.int64)
-        Qsa = Qssp.gather(-1, a.unsqueeze(0))
+        #print(Qssp.shape)
+        Qsa = Qssp[:, :T, :].gather(-1, expand_unsqueeze_0(a, S))
+        #print(Qsa.shape)
         Qsp = Qssp[:, T:, :]
         return Qsa, Qsp, logpq
         

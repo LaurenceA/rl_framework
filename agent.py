@@ -84,6 +84,10 @@ class Agent(nn.Module):
     def __init__(self, args):
         super().__init__()
         self.args = args
+        #if args.vi_family == "det":
+        #    args.S_eval=1
+        #    args.S_train=1
+        #    args.S_explore=1
         self.env = gym.make(args.env)
         self.env.action_space.seed(args.seed)
         self.env.seed(args.seed)

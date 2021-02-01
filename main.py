@@ -2,9 +2,13 @@ import argparse
 
 import random
 import numpy
-import torch
+import torch as t
 
 from agent import Agent
+
+#--vi_family det
+#--vi_family gi --sigma 1. --epsilon 1. --output_scale 50
+#--vi_family gi --S_eval 300 --epsilon 0.1 --sigma 1. --fixed_learned_sigma learned --output_scale 50.
 
 parser = argparse.ArgumentParser()
 parser.add_argument('output_filename',              type=str,   nargs='?', default='test')
@@ -34,21 +38,26 @@ parser.add_argument('--S_train',                    type=int,   nargs='?', defau
 parser.add_argument('--S_explore',                  type=int,   nargs='?', default=1)
 parser.add_argument('--gamma',                      type=float, nargs='?', default=0.99)
 parser.add_argument('--seed',                       type=int,   nargs='?', default=0)
-parser.add_argument('--epsilon',                    type=float, nargs='?', default=1)
+parser.add_argument('--epsilon',                    type=float, nargs='?', default=0.1)
+parser.add_argument('--random_episodes',            type=int,   nargs='?', default=2)
+parser.add_argument('--episodes',                   type=int,   nargs='?', default=100)
 parser.add_argument('--train_steps_per_transition', type=int,   nargs='?', default=100)
-parser.add_argument('--output_scale',               type=float, nargs='?', default=200.)
+parser.add_argument('--output_scale',               type=float, nargs='?', default=50.)
 parser.add_argument('--action_weight',              type=float, nargs='?', default=0.1)
 parser.add_argument('--state_weight',               type=float, nargs='?', default=1.)
 args = parser.parse_args()
 
 
-torch.manual_seed(args.seed)
+t.manual_seed(args.seed)
 numpy.random.seed(args.seed)
 random.seed(args.seed)
 
 
 if __name__ == "__main__":
     agent = Agent(args)
-    for i in range(100):
+    for i in range(args.random_episodes):
+        agent.train_rollout(epsilon=1.)
+        print(f"episode: {i}; eval:  {agent.eval_rollout()}; sigma: {agent.Pr.sigma}")
+    for i in range(args.episodes):
         agent.train_rollout()
         print(f"episode: {i}; eval:  {agent.eval_rollout()}; sigma: {agent.Pr.sigma}")
