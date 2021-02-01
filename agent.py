@@ -140,7 +140,7 @@ class Agent(nn.Module):
         lpr = Pr.log_prob(r)
         assert lpr.shape == (self.args.S_train, batch, 1)
         lpr = lpr.mean((-1, -2))
-        obj = lpr + logpq / self.buff.filled_buffer
+        obj = lpr + self.args.beta * logpq / self.buff.filled_buffer
         assert obj.shape == (self.args.S_train,)
         
         self.opt.zero_grad()
