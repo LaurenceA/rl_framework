@@ -23,7 +23,7 @@ parser.add_argument('--dtype',                      type=str,   nargs='?', defau
 parser.add_argument('--opt',                        type=str,   nargs='?', default='Adam',)
 parser.add_argument('--lr',                         type=float, nargs='?', default=0.01)
 parser.add_argument('--hidden_units',               type=int,   nargs='?', default=50)
-parser.add_argument('--hidden_layers',              type=int,   nargs='?', default=0)
+parser.add_argument('--hidden_layers',              type=int,   nargs='?', default=1)
 parser.add_argument('--train_batch',                type=int,   nargs='?', default=1024)
 parser.add_argument('--gi_inducing_batch',          type=int,   nargs='?', default=200)
 parser.add_argument('--gi_prec',                    type=str,   nargs='?', default='full',       choices=['full', 'diag'])

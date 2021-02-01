@@ -49,7 +49,7 @@ def net(in_features, out_features, args):
     _net = nn.Sequential(
         lin(in_features, args.hidden_units, **kwargs),
         nn.ReLU(),
-        *[nn.Sequential(lin(args.hidden_units, args.hidden_units, **kwargs), nn.ReLU()) for _ in range(args.hidden_layers)],
+        *[nn.Sequential(lin(args.hidden_units, args.hidden_units, **kwargs), nn.ReLU()) for _ in range(args.hidden_layers-1)],
         lin(args.hidden_units, out_features, **kwargs),
         Scale(args.output_scale)
     )
